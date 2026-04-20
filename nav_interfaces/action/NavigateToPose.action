@@ -1,0 +1,21 @@
+# Target goal position given as:
+float64 x
+float64 y
+float64 theta
+
+---
+# Result to be rendered as:
+bool success
+float64 final_x
+float64 final_y
+float64 final_theta
+string message
+
+---
+# Feedback to be continuously rendered as:
+float64 current_x
+float64 current_y
+float64 current_theta
+float64 distance_error
+float64 heading_error
+string phase
