@@ -18,6 +18,48 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(rclcpp_components REQUIRED)    # needed because the action client and server will be components
 find_package(nav_interfaces REQUIRED)      # depends on the custom action defn
 
+# -------------------------------
+include_directories(include)
+
+add_library(nav_action_server_component SHARED
+  src/nav_action_server_component.cpp
+)
+
+ament_target_dependencies(nav_action_server_component
+  rclcpp
+  rclcpp_action
+  rclcpp_components
+  geometry_msgs
+  std_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  rt2_nav_interfaces
+)
+
+rclcpp_components_register_nodes(nav_action_server_component
+  "nav_system::NavActionServerComponent"
+)
+
+install(
+  TARGETS nav_action_server_component
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(
+  DIRECTORY include/
+  DESTINATION include
+)
+
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+#----------------------------------
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
