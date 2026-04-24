@@ -22,9 +22,10 @@ find_package(nav_interfaces REQUIRED)      # depends on the custom action defn
 include_directories(include)
 
 add_library(nav_action_server_component SHARED
-  src/nav_action_server_component.cpp
+  src/nav_action_server_component.cpp                  # build the nav_action_server_component library with the source file
 )
 
+# link dependencies
 ament_target_dependencies(nav_action_server_component
   rclcpp
   rclcpp_action
@@ -35,12 +36,12 @@ ament_target_dependencies(nav_action_server_component
   tf2
   tf2_ros
   tf2_geometry_msgs
-  rt2_nav_interfaces
+  nav_interfaces
 )
 
 rclcpp_components_register_nodes(nav_action_server_component
   "nav_system::NavActionServerComponent"
-)
+) # register the component to make it discoverable
 
 install(
   TARGETS nav_action_server_component
@@ -54,10 +55,10 @@ install(
   DESTINATION include
 )
 
-install(
-  DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}
-)
+# install(
+#   DIRECTORY launch
+#   DESTINATION share/${PROJECT_NAME}
+# )
 
 #----------------------------------
 if(BUILD_TESTING)
