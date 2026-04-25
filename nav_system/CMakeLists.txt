@@ -43,8 +43,33 @@ rclcpp_components_register_nodes(nav_action_server_component
   "nav_system::NavActionServerComponent"
 ) # register the component to make it discoverable
 
+add_library(nav_action_client_component SHARED
+  src/nav_action_client_component.cpp
+)
+
+# link dependencies
+ament_target_dependencies(nav_action_client_component
+  rclcpp
+  rclcpp_action
+  rclcpp_components
+  geometry_msgs
+  std_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  nav_interfaces
+)
+
+rclcpp_components_register_nodes(nav_action_client_component
+  "nav_system::NavActionClientComponent"
+) # register the component to make it discoverable
+
+
 install(
-  TARGETS nav_action_server_component
+  TARGETS 
+      nav_action_server_component
+      nav_action_client_component
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
