@@ -54,7 +54,8 @@ private:                     // Private variables
   // Callback functions
   void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void get_current_pose(double & x, double & y, double & theta);
-  void publish_stop();
+  void publish_cmd_vel(double linear_x, double angular_z);    // publish velocity commands to the robot
+  void publish_stop();  // publish stop command to the robot
 };
 
 

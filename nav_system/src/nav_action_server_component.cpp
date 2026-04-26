@@ -25,7 +25,14 @@ namespace
         angle += 2.0 * M_PI;
     }
     return angle;
-}
+    }
+
+    // clamp value to the [min, max] range
+    double clamp_value(double value, double min_value, double max_value)
+    {
+    return std::max(min_value, std::min(value, max_value));
+    }
+
 }
 namespace nav_system   // Namespace declaration
 {
@@ -92,9 +99,17 @@ namespace nav_system   // Namespace declaration
     // publish stop command to the robot
     void NavActionServerComponent::publish_stop()
     {
+        publish_cmd_vel(0.0, 0.0);
+    }   
+
+    // publish velocity commands to the robot
+    void NavActionServerComponent::publish_cmd_vel(
+        double linear_x,
+        double angular_z)
+    {
         geometry_msgs::msg::Twist cmd;
-        cmd.linear.x = 0.0;
-        cmd.angular.z = 0.0;
+        cmd.linear.x = linear_x;
+        cmd.angular.z = angular_z;
         cmd_vel_pub_->publish(cmd);
     }
 
@@ -150,74 +165,99 @@ namespace nav_system   // Namespace declaration
             RCLCPP_ERROR(this->get_logger(), "Aborting goal: no odometry available.");
             return;
         }
+        // Define controller gains and tolerances
+        const double k_omega = 1.5;
+        const double max_omega = 1.0;
+        const double yaw_tolerance = 0.005;
 
-        publish_stop();   // when the action server is started, publish stop command to the robot to ensure it is not moving
-        
-        for (int i = 0; i < 5; ++i) {
+        rclcpp::Rate loop_rate(10.0);    // create a 10 Hz control loop
 
-            // check if cancel request has arrived
+        // Main control loop for rotation to goal heading
+        while (rclcpp::ok()) {    // loop continues as long as ROS is running
+
+            // Check if the goal was canceled
             if (goal_handle->is_canceling()) {
-                double x, y, theta;
-                get_current_pose(x, y, theta);
-                publish_stop();
-                
+                double x, y, yaw;
+                get_current_pose(x, y, yaw);
+
+                publish_stop();  // Publish stop command
+
+                // Set the result to canceled and publish the result
                 result->success = false;
                 result->final_x = x;
                 result->final_y = y;
-                result->final_theta = theta;
-                result->message = "Goal canceled during odeom feedback check";
+                result->final_theta = yaw;
+                result->message = "Goal canceled during rotation phase.";
 
-                // if so, mark the goal as canceled and return
                 goal_handle->canceled(result);
-                RCLCPP_WARN(this->get_logger(), "Goal canceled.");   
+                RCLCPP_WARN(this->get_logger(), "Goal canceled.");
                 return;
-            }          
+            }
 
-            double x, y, theta;
-            get_current_pose(x, y, theta);
+            // If not canceled, get the current pose of the robot
+            double x, y, yaw;
+            get_current_pose(x, y, yaw);  // store current pose in x, y, yaw
 
-            const double dx= goal_handle->get_goal()->x - x;
-            const double dy= goal_handle->get_goal()->y - y;
-            const double distance_error= std::hypot(dx, dy);
-            const double heading_to_goal= std::atan2(dy, dx);
-            const double heading_error= wrap_to_pi(heading_to_goal - theta);
+            // Calculate the distance error and heading error
+            const double dx = goal_handle->get_goal()->x - x;
+            const double dy = goal_handle->get_goal()->y - y;
+            const double distance_error = std::hypot(dx, dy);
 
-            // send feedback values to the client
+            const double heading_to_goal = std::atan2(dy, dx);
+            const double heading_error = wrap_to_pi(heading_to_goal - yaw);
+
+            // Prepare the feedback with the current pose and errors
             feedback->current_x = x;
             feedback->current_y = y;
-            feedback->current_theta = theta;
+            feedback->current_theta = yaw;
             feedback->distance_error = distance_error;
             feedback->heading_error = heading_error;
-            feedback->phase = "ODOMETRY_FEEDBACK_TEST";
-            
-            // publish feedback to the client
+            feedback->phase = "ROTATING_TO_GOAL";
+
+            // Publish the feedback
             goal_handle->publish_feedback(feedback);
 
-            // log the feedback
-            RCLCPP_INFO(
-            this->get_logger(),
-            "Publishing feedback: current_x=%.2f, distance_error=%.2f, heading_error=%.2f, phase=%s",
-            feedback->current_x,
-            feedback->distance_error,
-            feedback->heading_error,
-            feedback->phase.c_str());
+            // If the heading error is within the tolerance, stop the robot: Goal Reached
+            if (std::abs(heading_error) < yaw_tolerance) {
+                publish_stop();
 
-            std::this_thread::sleep_for(1s);    // pause to make the feedback visible to the client
+                // Set the result to succeeded and publish the result
+                result->success = false;
+                result->final_x = x;
+                result->final_y = y;
+                result->final_theta = yaw;
+                result->message =
+                    "Rotation phase completed successfully.";
+
+                goal_handle->abort(result);
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Rotation phase complete. (partially done)");
+                return;
+            }
+
+            // If not yet at the goal heading (heading error > tolerance), rotate the robot to the goal heading
+            const double omega_cmd =
+                clamp_value(k_omega * heading_error, -max_omega, max_omega); // proportional controller with saturation (clamping control effort)
+
+            publish_cmd_vel(0.0, omega_cmd);  // Publish angular velocity command
+
+            RCLCPP_INFO(
+                this->get_logger(),
+                "Rotating: yaw=%.3f, heading_to_goal=%.3f, heading_error=%.3f, omega_cmd=%.3f",
+                yaw, heading_to_goal, heading_error, omega_cmd);
+
+            loop_rate.sleep();  // wait for the next control cycle
         }
 
-        double x, y, theta;
-        get_current_pose(x, y, theta);
-        publish_stop();   // stop the robot after reaching the goal
+        publish_stop();   // unexpected termination
 
-        result->success = true;
-        result->final_x = x;
-        result->final_y = y;
-        result->final_theta = theta;
-        result->message = "odometry test completed. Navigation to be continued";
-
-        goal_handle->succeed(result);      // if no cancel request has arrived and goal is completed, the goal is marked as succeeded
-
-        RCLCPP_INFO(this->get_logger(), "Goal succeeded.");
+        result->success = false;
+        result->final_x = 0.0;
+        result->final_y = 0.0;
+        result->final_theta = 0.0;
+        result->message = "Execution loop ended unexpectedly.";
+        goal_handle->abort(result);
     }
 
 }  // namespace nav_system
