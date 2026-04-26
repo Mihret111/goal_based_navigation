@@ -192,7 +192,17 @@ namespace nav_system   // Namespace declaration
         // saftey: (check result though....if heading error gets too large while moving, stop translating and rotate again.
         const double heading_realign_threshold = 0.30;
 
-        rclcpp::Rate loop_rate(10.0);    // create a 10 Hz control loop
+        // MODE-Simultaneous: parameters(gains) for the simultaneous implementation of rotation and translation
+        const double k_rho = 0.6;
+        const double k_alpha = 1.8;
+        const double k_beta = -0.5;
+        // const double max_v = 0.25;
+        // const double max_omega = 1.0;
+        // const double position_tolerance = 0.05;
+        // const double final_yaw_tolerance = 0.05;
+
+        // create a 10 Hz control loop
+        rclcpp::Rate loop_rate(10.0);   
 
         enum class Phase
         {  // phased implemetation : subject to change for simultaneous rotation and translation
@@ -238,12 +248,71 @@ namespace nav_system   // Namespace declaration
             const double heading_error = wrap_to_pi(heading_to_goal - yaw);
             const double final_theta_error = wrap_to_pi(goal_handle->get_goal()->theta - yaw);
             
+            // MODE-Simultaneous: parameters for simultaneous rotation and translation
+            const double rho = std::hypot(dx, dy);   // error in distance
+            const double alpha = wrap_to_pi(std::atan2(dy, dx) - yaw);   // error in heading to goal
+            const double beta = wrap_to_pi(goal_handle->get_goal()->theta - yaw - alpha);   // error in final orientation
+            // const double final_theta_error = wrap_to_pi(goal_handle->get_goal()->theta - yaw);
+
+
+        // MODE-Simultaneous
+        if (controller_mode_ == "simultaneous") {
+            feedback->current_x = x;
+            feedback->current_y = y;
+            feedback->current_theta = yaw;
+            feedback->distance_error = rho;
+            feedback->heading_error = alpha;
+            feedback->phase = "SIMULTANEOUS_CONTROL";
+
+            goal_handle->publish_feedback(feedback);
+
+            // Success condition: If the distance error and heading error are within the tolerance, stop the robot: Goal Reached
+            if (rho < position_tolerance &&
+                std::abs(final_theta_error) < final_yaw_tolerance)
+            {
+                publish_stop();
+
+                result->success = true;
+                result->final_x = x;
+                result->final_y = y;
+                result->final_theta = yaw;
+                result->message = "Navigation completed successfully with simultaneous controller.";
+
+                goal_handle->succeed(result);
+                RCLCPP_INFO(this->get_logger(), "Navigation goal succeeded (simultaneous mode).");
+                return;
+            }
+            // If not, implement the movement and rotation towards goal
+            const double v_cmd =
+                clamp_value(k_rho * rho * std::max(0.0, std::cos(alpha)), 0.0, max_v);
+                //If the robot has bad heading error, cos(alpha) becomes small or negative, 
+                //so v_cmd becomes small or zero, preventing unwanted arc movement.
+                //If low heading error, large forward speed; if high heading error, low forward speed
+            
+            const double omega_cmd =
+                clamp_value(k_alpha * alpha + k_beta * beta, -max_omega, max_omega);
+                //If beta is large and negative (wrong side), omega will be large positive (turn left).
+                //If beta is large and positive (other wrong side), omega will be large negative (turn right).
+                //If beta is near zero, omega will be small, letting the robot drive straight.
+
+            publish_cmd_vel(v_cmd, omega_cmd);
+
+            RCLCPP_INFO(
+                this->get_logger(),
+                "SIMULTANEOUS | x=%.3f, y=%.3f, yaw=%.3f, rho=%.3f, alpha=%.3f, beta=%.3f, v=%.3f, omega=%.3f",
+                x, y, yaw, rho, alpha, beta, v_cmd, omega_cmd);
+
+            loop_rate.sleep();  // Wait 0.1 seconds before next control loop iteration
+            continue;
+        }
+
+        //MODE-Staged
+        else if (controller_mode_ == "staged"){
             // Prepare the feedback with the current pose and errors
             feedback->current_x = x;
             feedback->current_y = y;
             feedback->current_theta = yaw;
             feedback->distance_error = distance_error;
-
             // set heading error based on phase
             if (phase == Phase::ALIGNING_FINAL_THETA) {    
                 feedback->heading_error = final_theta_error;
@@ -294,7 +363,7 @@ namespace nav_system   // Namespace declaration
                 RCLCPP_INFO(this->get_logger(), "Navigation goal succeeded.");
                 return;
             }
-
+        }
             // Implement the movement and rotation towards goal
             double v_cmd = 0.0;
             double omega_cmd = 0.0;
