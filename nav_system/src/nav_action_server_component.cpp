@@ -9,6 +9,8 @@
 #include <cmath>
 #include "rclcpp_components/register_node_macro.hpp"
 #include "tf2/utils.h"    // for receiving yaw from quaternion of odom message
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+
 using namespace std::chrono_literals;
 
 namespace
