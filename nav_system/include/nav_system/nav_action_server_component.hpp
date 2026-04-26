@@ -3,6 +3,10 @@
 
 #include <memory>
 #include <string>
+#include <mutex>
+
+#include "geometry_msgs/msg/twist.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -24,6 +28,14 @@ public:
 private:                     // Private variables
   rclcpp_action::Server<NavigateToPose>::SharedPtr action_server_;  // shared pointer to the action server 
   
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;   // Subscriber to the odometry topic 
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;   // Publisher to the velocity topic
+
+  std::mutex pose_mutex_;                                       // protects shared pose variables  
+  double current_x_, current_y_, current_theta_;                   // Current position and orientation of the robot
+  bool odom_received_;                                             // flag to indicate if odometry has been received
+  bool first_odom_logged_;                                         // flag to indicate if the first odometry has been logged
+
   // Called when a new goal request arrives
   rclcpp_action::GoalResponse handle_goal(
     const rclcpp_action::GoalUUID & uuid,
@@ -38,7 +50,14 @@ private:                     // Private variables
 
   // Contains actual navigation logic
   void execute(const std::shared_ptr<GoalHandleNavigateToPose> goal_handle);
+
+  // Callback functions
+  void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
+  void get_current_pose(double & x, double & y, double & theta);
+  void publish_stop();
 };
+
+
 
 }  // namespace nav_system
 
