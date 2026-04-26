@@ -176,6 +176,9 @@ namespace nav_system   // Namespace declaration
         const double max_v = 0.25;                 // maximum allowable linear velocity in meters/second  (physically relatable to motor speed limits)
         const double position_tolerance = 0.05;    // defines how close enough is enough in meters
 
+        const double final_yaw_tolerance = 0.05;   // tolerance for final orientation alignment
+        const double k_omega_final = 1.5;          // gain for final orientation alignment
+
         // saftey: (check result though....if heading error gets too large while moving, stop translating and rotate again.
         const double heading_realign_threshold = 0.30;
 
@@ -185,7 +188,7 @@ namespace nav_system   // Namespace declaration
         {  // phased implemetation : subject to change for simultaneous rotation and translation
         ROTATING_TO_GOAL,
         MOVING_TO_POSITION,
-        FINISHED
+        ALIGNING_FINAL_THETA
         };
 
         Phase phase = Phase::ROTATING_TO_GOAL;   // Initializing phase to ROTATING_TO_GOAL
@@ -223,14 +226,21 @@ namespace nav_system   // Namespace declaration
 
             const double heading_to_goal = std::atan2(dy, dx);
             const double heading_error = wrap_to_pi(heading_to_goal - yaw);
-
+            const double final_theta_error = wrap_to_pi(goal_handle->get_goal()->theta - yaw);
+            
             // Prepare the feedback with the current pose and errors
             feedback->current_x = x;
             feedback->current_y = y;
             feedback->current_theta = yaw;
             feedback->distance_error = distance_error;
-            feedback->heading_error = heading_error;
 
+            // set heading error based on phase
+            if (phase == Phase::ALIGNING_FINAL_THETA) {    
+                feedback->heading_error = final_theta_error;
+            } else {
+                feedback->heading_error = heading_error;
+            }
+            
             // Publish the feedback
             goal_handle->publish_feedback(feedback);
 
@@ -251,19 +261,27 @@ namespace nav_system   // Namespace declaration
                 distance_error < position_tolerance)
             {
                 publish_stop();
-                feedback->phase = "MOVING_TO_POSITION";
+                phase = Phase::ALIGNING_FINAL_THETA;
+                RCLCPP_INFO(
+                    this->get_logger(),
+                    "Position phase complete. Switching to final-theta alignment phase.");
+                loop_rate.sleep();
+                continue;
+            }
 
-                result->success = false;
+            if (phase == Phase::ALIGNING_FINAL_THETA &&
+            std::abs(final_theta_error) < final_yaw_tolerance)
+            {
+                publish_stop();
+
+                result->success = true;
                 result->final_x = x;
                 result->final_y = y;
                 result->final_theta = yaw;
-                result->message =
-                    "Move-to-position phase completed successfully. Final orientation alignment not implemented yet.";
+                result->message = "Navigation completed successfully.";
 
-                goal_handle->abort(result);
-                RCLCPP_WARN(
-                    this->get_logger(),
-                    "Position reached. Aborting intentionally because final-theta phase is not implemented yet.");
+                goal_handle->succeed(result);
+                RCLCPP_INFO(this->get_logger(), "Navigation goal succeeded.");
                 return;
             }
 
@@ -288,6 +306,11 @@ namespace nav_system   // Namespace declaration
                 omega_cmd = clamp_value(k_omega * heading_error, -max_omega, max_omega);
                 feedback->phase = "MOVING_TO_POSITION";
             }
+            }
+            else if (phase == Phase::ALIGNING_FINAL_THETA) {
+                v_cmd = 0.0;
+                omega_cmd = clamp_value(k_omega_final * final_theta_error, -max_omega, max_omega);
+                feedback->phase = "ALIGNING_FINAL_THETA";
             }
 
             publish_cmd_vel(v_cmd, omega_cmd);
