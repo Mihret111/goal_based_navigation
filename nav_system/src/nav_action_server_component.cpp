@@ -18,7 +18,7 @@ namespace
     // wrap angle to meaningful range for interpretation (pi to -pi)
     double wrap_to_pi(double angle)
     {
-    while (angle > M_PI) {
+    while (angle > M_PI) {   // M_PI is defined in <cmath> header file == 3.1415...
         angle -= 2.0 * M_PI;
     }
     while (angle < -M_PI) {
@@ -154,8 +154,10 @@ namespace nav_system   // Namespace declaration
 
         auto feedback = std::make_shared<NavigateToPose::Feedback>();
         auto result = std::make_shared<NavigateToPose::Result>();
+        
         // check if odometry data is received
         if (!odom_received_) {
+            //if not received, abort the goal: cannot be executed
             result->success = false;
             result->final_x = 0.0;
             result->final_y = 0.0;
@@ -168,9 +170,25 @@ namespace nav_system   // Namespace declaration
         // Define controller gains and tolerances
         const double k_omega = 1.5;
         const double max_omega = 1.0;
-        const double yaw_tolerance = 0.005;
+        const double yaw_tolerance = 0.05;   // tolerance for yaw angle error in radians
+
+        const double k_v = 0.5;
+        const double max_v = 0.25;                 // maximum allowable linear velocity in meters/second  (physically relatable to motor speed limits)
+        const double position_tolerance = 0.05;    // defines how close enough is enough in meters
+
+        // saftey: (check result though....if heading error gets too large while moving, stop translating and rotate again.
+        const double heading_realign_threshold = 0.30;
 
         rclcpp::Rate loop_rate(10.0);    // create a 10 Hz control loop
+
+        enum class Phase
+        {  // phased implemetation : subject to change for simultaneous rotation and translation
+        ROTATING_TO_GOAL,
+        MOVING_TO_POSITION,
+        FINISHED
+        };
+
+        Phase phase = Phase::ROTATING_TO_GOAL;   // Initializing phase to ROTATING_TO_GOAL
 
         // Main control loop for rotation to goal heading
         while (rclcpp::ok()) {    // loop continues as long as ROS is running
@@ -212,41 +230,74 @@ namespace nav_system   // Namespace declaration
             feedback->current_theta = yaw;
             feedback->distance_error = distance_error;
             feedback->heading_error = heading_error;
-            feedback->phase = "ROTATING_TO_GOAL";
 
             // Publish the feedback
             goal_handle->publish_feedback(feedback);
 
             // If the heading error is within the tolerance, stop the robot: Goal Reached
-            if (std::abs(heading_error) < yaw_tolerance) {
+            if (phase == Phase::ROTATING_TO_GOAL &&
+                std::abs(heading_error) < yaw_tolerance)
+            {
                 publish_stop();
+                feedback->phase = "ROTATING_TO_GOAL";
+                phase = Phase::MOVING_TO_POSITION;
+                RCLCPP_INFO(this->get_logger(), "Rotation phase complete. Switching to move phase.");
+                loop_rate.sleep();
+                continue;
+            }
 
-                // Set the result to succeeded and publish the result
+            // if position tolerance is reached, abort the goal
+            if (phase == Phase::MOVING_TO_POSITION &&
+                distance_error < position_tolerance)
+            {
+                publish_stop();
+                feedback->phase = "MOVING_TO_POSITION";
+
                 result->success = false;
                 result->final_x = x;
                 result->final_y = y;
                 result->final_theta = yaw;
                 result->message =
-                    "Rotation phase completed successfully.";
+                    "Move-to-position phase completed successfully. Final orientation alignment not implemented yet.";
 
                 goal_handle->abort(result);
                 RCLCPP_WARN(
                     this->get_logger(),
-                    "Rotation phase complete. (partially done)");
+                    "Position reached. Aborting intentionally because final-theta phase is not implemented yet.");
                 return;
             }
 
-            // If not yet at the goal heading (heading error > tolerance), rotate the robot to the goal heading
-            const double omega_cmd =
-                clamp_value(k_omega * heading_error, -max_omega, max_omega); // proportional controller with saturation (clamping control effort)
+            // Implement the movement and rotation towards goal
+            double v_cmd = 0.0;
+            double omega_cmd = 0.0;
 
-            publish_cmd_vel(0.0, omega_cmd);  // Publish angular velocity command
+            if (phase == Phase::ROTATING_TO_GOAL) {
+            v_cmd = 0.0;
+            omega_cmd = clamp_value(k_omega * heading_error, -max_omega, max_omega);
+            feedback->phase = "ROTATING_TO_GOAL";
+            }
+            else if (phase == Phase::MOVING_TO_POSITION) {
+            // If the heading error becomes too large while moving, stop forward
+            // motion and go back to rotation phase for stability.
+            if (std::abs(heading_error) > heading_realign_threshold) {
+                v_cmd = 0.0;
+                omega_cmd = clamp_value(k_omega * heading_error, -max_omega, max_omega);
+                feedback->phase = "REALIGNING_DURING_MOVE";
+            } else {
+                v_cmd = clamp_value(k_v * distance_error, 0.0, max_v);
+                omega_cmd = clamp_value(k_omega * heading_error, -max_omega, max_omega);
+                feedback->phase = "MOVING_TO_POSITION";
+            }
+            }
+
+            publish_cmd_vel(v_cmd, omega_cmd);
 
             RCLCPP_INFO(
-                this->get_logger(),
-                "Rotating: yaw=%.3f, heading_to_goal=%.3f, heading_error=%.3f, omega_cmd=%.3f",
-                yaw, heading_to_goal, heading_error, omega_cmd);
-
+            this->get_logger(),
+            "Phase=%s | x=%.3f, y=%.3f, yaw=%.3f, dist=%.3f, heading_err=%.3f, v_cmd=%.3f, omega_cmd=%.3f",
+            feedback->phase.c_str(),
+            x, y, yaw, distance_error, heading_error, v_cmd, omega_cmd);
+            
             loop_rate.sleep();  // wait for the next control cycle
         }
 
