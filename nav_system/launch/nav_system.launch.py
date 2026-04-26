@@ -8,7 +8,8 @@ def generate_launch_description():
     nav_server_component = ComposableNode(
         package='nav_system',
         plugin='nav_system::NavActionServerComponent',
-        name='nav_action_server_component'
+        name='nav_action_server_component',
+        parameters=[{'controller_mode': 'simultaneous'}]
     )
 
     # launch client component alone first to see if it works

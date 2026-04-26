@@ -5,6 +5,7 @@
 #include <memory>
 #include <thread>
 #include <utility>
+#include <string>
 
 #include <cmath>
 #include "rclcpp_components/register_node_macro.hpp"
@@ -57,16 +58,25 @@ namespace nav_system   // Namespace declaration
         10,
         std::bind(&NavActionServerComponent::odom_callback, this, std::placeholders::_1));
 
-    action_server_ = rclcpp_action::create_server<NavigateToPose>(     // create server that handles goal requests, cancellations, and feedback 
-        this,
-        "navigate_to_pose",     // binding the action server to the "navigate_to_pose" custom action name
-        std::bind(&NavActionServerComponent::handle_goal, this, std::placeholders::_1, std::placeholders::_2),       // binding the handle_goal callback method to the action server
-        std::bind(&NavActionServerComponent::handle_cancel, this, std::placeholders::_1),  // binding the handle_cancel method to the action server
-        std::bind(&NavActionServerComponent::handle_accepted, this, std::placeholders::_1)   // binding the handle_accepted method to the action server
-    );
+        action_server_ = rclcpp_action::create_server<NavigateToPose>(     // create server that handles goal requests, cancellations, and feedback 
+            this,
+            "navigate_to_pose",     // binding the action server to the "navigate_to_pose" custom action name
+            std::bind(&NavActionServerComponent::handle_goal, this, std::placeholders::_1, std::placeholders::_2),       // binding the handle_goal callback method to the action server
+            std::bind(&NavActionServerComponent::handle_cancel, this, std::placeholders::_1),  // binding the handle_cancel method to the action server
+            std::bind(&NavActionServerComponent::handle_accepted, this, std::placeholders::_1)   // binding the handle_accepted method to the action server
+        );
+
+        // defining a configuration parameter that allows to switch between staged and simultaneous implementations
+        this->declare_parameter<std::string>("controller_mode", "staged");
+        controller_mode_ = this->get_parameter("controller_mode").as_string();
+
+        RCLCPP_INFO(
+        this->get_logger(),
+        "Controller mode: %s",
+        controller_mode_.c_str());
 
 
-    RCLCPP_INFO(this->get_logger(), "NavActionServerComponent started.");
+        RCLCPP_INFO(this->get_logger(), "NavActionServerComponent started.");
     }
     // callback method for odometry data
     void NavActionServerComponent::odom_callback(
@@ -240,7 +250,7 @@ namespace nav_system   // Namespace declaration
             } else {
                 feedback->heading_error = heading_error;
             }
-            
+
             // Publish the feedback
             goal_handle->publish_feedback(feedback);
 

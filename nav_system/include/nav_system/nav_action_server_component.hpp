@@ -31,6 +31,8 @@ private:                     // Private variables
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;   // Subscriber to the odometry topic 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;   // Publisher to the velocity topic
 
+  std::string controller_mode_;  // mode variable to chooose from staged vs simultaneous movement 
+
   std::mutex pose_mutex_;                                       // protects shared pose variables  
   double current_x_, current_y_, current_theta_;                   // Current position and orientation of the robot
   bool odom_received_;                                             // flag to indicate if odometry has been received
