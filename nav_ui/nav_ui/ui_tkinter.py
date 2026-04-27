@@ -68,8 +68,20 @@ class NavTkApp:
         self.root.after(100, self.process_gui_queue)
 
     def build_layout(self):
+        # bg_color = '#eaf2f8'  # A very light, subtle blue
+        bg_color = '#e4e9f0'  # A light, cool gray-blue
+        
+        fg_color = '#11224d'  # A deep, distinct blue-black
+        
+        self.root.configure(bg=bg_color)
+        
         style = ttk.Style()
-        style.configure('TLabelframe.Label', font=('Arial', 11, 'bold'))
+        # Set the default background for all ttk widgets
+        style.configure('.', background=bg_color)
+        # Configure the label frame titles
+        style.configure('TLabelframe.Label', font=('Arial', 11, 'bold'), foreground=fg_color, background=bg_color)
+        # Regular labels remain black
+        style.configure('TLabel', foreground='black', background=bg_color)
 
         main_frame = ttk.Frame(self.root, padding=12)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -77,7 +89,8 @@ class NavTkApp:
         title = ttk.Label(
             main_frame,
             text="Control Panel",
-            font=("Arial", 12, "bold")
+            font=("Arial", 12, "bold"),
+            foreground=fg_color
         )
         title.pack(anchor="center", pady=(0, 10))
 
@@ -99,17 +112,14 @@ class NavTkApp:
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=(0, 10))
 
-        send_btn = ttk.Button(button_frame, text="Send Goal", command=self.on_send_goal)
-        send_btn.pack(side=tk.LEFT, padx=(0, 10))
+        clear_btn = ttk.Button(button_frame, text="Clear Log", command=self.clear_log)
+        clear_btn.pack(side=tk.RIGHT, padx=(10, 0))
 
         cancel_btn = ttk.Button(button_frame, text="Cancel Goal", command=self.on_cancel_goal)
-        cancel_btn.pack(side=tk.LEFT, padx=(0, 10))
+        cancel_btn.pack(side=tk.RIGHT, padx=(10, 0))
 
-        clear_btn = ttk.Button(button_frame, text="Clear Log", command=self.clear_log)
-        clear_btn.pack(side=tk.LEFT, padx=(0, 10))
-
-        quit_btn = ttk.Button(button_frame, text="Quit", command=self.on_quit)
-        quit_btn.pack(side=tk.RIGHT)
+        send_btn = ttk.Button(button_frame, text="Send Goal", command=self.on_send_goal)
+        send_btn.pack(side=tk.RIGHT, padx=(0, 0))
 
         self.latest_status_var = tk.StringVar(value="Waiting for messages...")
         status_box = ttk.LabelFrame(main_frame, text="Latest Status", padding=10)
@@ -122,6 +132,13 @@ class NavTkApp:
             justify="left"
         )
         latest_status_label.pack(anchor="w")
+
+        # Pack the bottom frame first with side=BOTTOM so it's always visible
+        bottom_frame = ttk.Frame(main_frame)
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        
+        quit_btn = ttk.Button(bottom_frame, text="Quit", command=self.on_quit)
+        quit_btn.pack(side=tk.RIGHT)
 
         log_box = ttk.LabelFrame(main_frame, text="Event Log", padding=10)
         log_box.pack(fill=tk.BOTH, expand=True)
