@@ -22,9 +22,10 @@ setup(
             'pytest',
         ],
     },
-    entry_points={
+    entry_points={ #console_scripts is where we put the commands that we want to run from the terminal
         'console_scripts': [
             'ui_node = nav_ui.ui_node:main',     # now, ui_node can be called by ROS2 from the terminal using 'ros2 run nav_ui ui_node'
+            'ui_tkinter = nav_ui.ui_tkinter:main',     # now, ui_node can be called by ROS2 from the terminal using 'ros2 run nav_ui ui_node'
         ],
     },
 )
