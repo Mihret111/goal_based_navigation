@@ -72,7 +72,7 @@ namespace nav_system   // Namespace declaration
         10);             // Will be subscribed to by the ui to display diagnostics information in the visual window
 
         // defining a configuration parameter that allows to switch between staged and simultaneous implementations
-        this->declare_parameter<std::string>("controller_mode", "staged");
+        this->declare_parameter<std::string>("controller_mode");
         controller_mode_ = this->get_parameter("controller_mode").as_string();
 
         RCLCPP_INFO(
@@ -256,32 +256,7 @@ namespace nav_system   // Namespace declaration
         // Main control loop for rotation to goal heading
         while (rclcpp::ok()) {    // loop continues as long as ROS is running
 
-            // Check if the goal was canceled
-            if (goal_handle->is_canceling()) {
-                double x, y, yaw;
-                get_current_pose(x, y, yaw);
-
-                publish_stop();  // Publish stop command
-
-                // Set the result to canceled and publish the result
-                result->success = false;
-                result->final_x = x;
-                result->final_y = y;
-                result->final_theta = yaw;
-                result->message = "Goal canceled during rotation phase.";
-
-
-                publish_diagnostics(x, y, yaw, goal_handle->get_goal()->x,goal_handle->get_goal()->y,
-                                    goal_handle->get_goal()->theta, 0.0, 0.0, 
-                                    0.0, 0.0, "GOAL_CANCELED", false);
-
-
-                goal_handle->canceled(result);
-                RCLCPP_WARN(this->get_logger(), "Goal canceled.");
-                return;
-            }
-
-            // If not canceled, get the current pose of the robot
+            // Get the current pose of the robot
             double x, y, yaw;
             get_current_pose(x, y, yaw);  // store current pose in x, y, yaw
 
@@ -293,6 +268,28 @@ namespace nav_system   // Namespace declaration
             const double heading_to_goal = std::atan2(dy, dx);
             const double heading_error = wrap_to_pi(heading_to_goal - yaw);
             const double final_theta_error = wrap_to_pi(goal_handle->get_goal()->theta - yaw);
+
+            // Check if the goal was canceled
+            if (goal_handle->is_canceling()) {
+                publish_stop();  // Publish stop command
+
+                // Set the result to canceled and publish the result
+                result->success = false;
+                result->final_x = x;
+                result->final_y = y;
+                result->final_theta = yaw;
+                result->message = "Goal canceled during rotation phase.";
+
+
+                publish_diagnostics(x, y, yaw, goal_handle->get_goal()->x,goal_handle->get_goal()->y,
+                                    goal_handle->get_goal()->theta, distance_error, heading_error, 
+                                    0.0, 0.0, "GOAL_CANCELED", false);
+
+
+                goal_handle->canceled(result);
+                RCLCPP_WARN(this->get_logger(), "Goal canceled.");
+                return;
+            }
             
             // MODE-Simultaneous: parameters for simultaneous rotation and translation
             const double rho = std::hypot(dx, dy);   // error in distance
@@ -308,7 +305,7 @@ namespace nav_system   // Namespace declaration
             feedback->current_theta = yaw;
             feedback->distance_error = rho;
             feedback->heading_error = alpha;
-            feedback->phase = "SIMULTANEOUS_CONTROL";
+            feedback->phase = "Executing";
 
             goal_handle->publish_feedback(feedback);
 
@@ -322,14 +319,14 @@ namespace nav_system   // Namespace declaration
                 result->final_x = x;
                 result->final_y = y;
                 result->final_theta = yaw;
-                result->message = "Navigation completed successfully with simultaneous controller.";
+                result->message = "Navigation completed successfully";
 
                 publish_diagnostics( x, y, yaw, goal_handle->get_goal()->x,goal_handle->get_goal()->y,
                                     goal_handle->get_goal()->theta, distance_error, final_theta_error, 
                                     0.0, 0.0, "GOAL_FINISHED", false);
 
                 goal_handle->succeed(result);
-                RCLCPP_INFO(this->get_logger(), "Navigation goal succeeded (simultaneous mode).");
+                RCLCPP_INFO(this->get_logger(), "Navigation goal succeeded");
                 return;
             }
             // If not, implement the movement and rotation towards goal
@@ -354,8 +351,8 @@ namespace nav_system   // Namespace declaration
 
             loop_rate.sleep();  // Wait 0.1 seconds before next control loop iteration
             publish_diagnostics( x, y,  yaw, goal_handle->get_goal()->x, goal_handle->get_goal()->y,
-                                    goal_handle->get_goal()->theta, distance_error,feedback->heading_error,
-                                    v_cmd,omega_cmd,feedback->phase,true);
+                                    goal_handle->get_goal()->theta, distance_error, alpha,
+                                    v_cmd,omega_cmd, "Executing",true);
             continue;
         }
 
