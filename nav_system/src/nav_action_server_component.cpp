@@ -66,6 +66,11 @@ namespace nav_system   // Namespace declaration
             std::bind(&NavActionServerComponent::handle_accepted, this, std::placeholders::_1)   // binding the handle_accepted method to the action server
         );
 
+        // create a diagnostics publisher
+        diagnostics_pub_ = this->create_publisher<nav_interfaces::msg::NavDiagnostics>(
+        "/nav/diagnostics",
+        10);             // Will be subscribed to by the ui to display diagnostics information in the visual window
+
         // defining a configuration parameter that allows to switch between staged and simultaneous implementations
         this->declare_parameter<std::string>("controller_mode", "staged");
         controller_mode_ = this->get_parameter("controller_mode").as_string();
@@ -123,6 +128,35 @@ namespace nav_system   // Namespace declaration
         cmd_vel_pub_->publish(cmd);
     }
 
+    void NavActionServerComponent::publish_diagnostics(
+    double current_x, double current_y, double current_theta,
+    double target_x, double target_y, double target_theta,
+    double distance_error, double heading_error,
+    double linear_cmd, double angular_cmd,
+    const std::string & phase, bool goal_active)
+    {
+    nav_interfaces::msg::NavDiagnostics msg;
+    msg.current_x = current_x;
+    msg.current_y = current_y;
+    msg.current_theta = current_theta;
+
+    msg.target_x = target_x;
+    msg.target_y = target_y;
+    msg.target_theta = target_theta;
+
+    msg.distance_error = distance_error;
+    msg.heading_error = heading_error;
+
+    msg.linear_cmd = linear_cmd;
+    msg.angular_cmd = angular_cmd;
+
+    msg.phase = phase;
+    msg.controller_mode = controller_mode_;
+    msg.goal_active = goal_active;
+
+    diagnostics_pub_->publish(msg);
+    }
+
     rclcpp_action::GoalResponse NavActionServerComponent::handle_goal(
     const rclcpp_action::GoalUUID & uuid,
     std::shared_ptr<const NavigateToPose::Goal> goal)
@@ -173,6 +207,12 @@ namespace nav_system   // Namespace declaration
             result->final_y = 0.0;
             result->final_theta = 0.0;
             result->message = "No odometry received yet. Cannot execute navigation.";
+            
+            
+            publish_diagnostics( 0.0, 0.0, 0.0, goal_handle->get_goal()->x, goal_handle->get_goal()->y,
+                                 goal_handle->get_goal()->theta, 0.0, 0.0, 
+                                 0.0, 0.0, "NO_ODOMETRY", false);
+
             goal_handle->abort(result);
             RCLCPP_ERROR(this->get_logger(), "Aborting goal: no odometry available.");
             return;
@@ -230,6 +270,12 @@ namespace nav_system   // Namespace declaration
                 result->final_theta = yaw;
                 result->message = "Goal canceled during rotation phase.";
 
+
+                publish_diagnostics(x, y, yaw, goal_handle->get_goal()->x,goal_handle->get_goal()->y,
+                                    goal_handle->get_goal()->theta, 0.0, 0.0, 
+                                    0.0, 0.0, "GOAL_CANCELED", false);
+
+
                 goal_handle->canceled(result);
                 RCLCPP_WARN(this->get_logger(), "Goal canceled.");
                 return;
@@ -278,6 +324,10 @@ namespace nav_system   // Namespace declaration
                 result->final_theta = yaw;
                 result->message = "Navigation completed successfully with simultaneous controller.";
 
+                publish_diagnostics( x, y, yaw, goal_handle->get_goal()->x,goal_handle->get_goal()->y,
+                                    goal_handle->get_goal()->theta, distance_error, final_theta_error, 
+                                    0.0, 0.0, "GOAL_FINISHED", false);
+
                 goal_handle->succeed(result);
                 RCLCPP_INFO(this->get_logger(), "Navigation goal succeeded (simultaneous mode).");
                 return;
@@ -303,11 +353,14 @@ namespace nav_system   // Namespace declaration
                 x, y, yaw, rho, alpha, beta, v_cmd, omega_cmd);
 
             loop_rate.sleep();  // Wait 0.1 seconds before next control loop iteration
+            publish_diagnostics( x, y,  yaw, goal_handle->get_goal()->x, goal_handle->get_goal()->y,
+                                    goal_handle->get_goal()->theta, distance_error,feedback->heading_error,
+                                    v_cmd,omega_cmd,feedback->phase,true);
             continue;
         }
 
         //MODE-Staged
-        else if (controller_mode_ == "staged"){
+        else if (controller_mode_ == "staged") {
             // Prepare the feedback with the current pose and errors
             feedback->current_x = x;
             feedback->current_y = y;
@@ -363,7 +416,7 @@ namespace nav_system   // Namespace declaration
                 RCLCPP_INFO(this->get_logger(), "Navigation goal succeeded.");
                 return;
             }
-        }
+        
             // Implement the movement and rotation towards goal
             double v_cmd = 0.0;
             double omega_cmd = 0.0;
@@ -394,6 +447,10 @@ namespace nav_system   // Namespace declaration
 
             publish_cmd_vel(v_cmd, omega_cmd);
 
+            publish_diagnostics( x, y, yaw, goal_handle->get_goal()->x,goal_handle->get_goal()->y,
+                                 goal_handle->get_goal()->theta, distance_error, heading_error, 
+                                 v_cmd, omega_cmd, feedback->phase, true);
+
             RCLCPP_INFO(
             this->get_logger(),
             "Phase=%s | x=%.3f, y=%.3f, yaw=%.3f, dist=%.3f, heading_err=%.3f, v_cmd=%.3f, omega_cmd=%.3f",
@@ -402,14 +459,20 @@ namespace nav_system   // Namespace declaration
             
             loop_rate.sleep();  // wait for the next control cycle
         }
-
+    }
+    
         publish_stop();   // unexpected termination
 
         result->success = false;
-        result->final_x = 0.0;
-        result->final_y = 0.0;
-        result->final_theta = 0.0;
+        double final_x, final_y, final_yaw;
+        get_current_pose(final_x, final_y, final_yaw);
+        result->final_x = final_x;
+        result->final_y = final_y;
+        result->final_theta = final_yaw;
         result->message = "Execution loop ended unexpectedly.";
+        publish_diagnostics( final_x, final_y, final_yaw, goal_handle->get_goal()->x, goal_handle->get_goal()->y,
+                                 goal_handle->get_goal()->theta, 0.0, 0.0, 
+                                 0.0, 0.0, "GOAL_ABORTED", false);
         goal_handle->abort(result);
     }
 

@@ -11,8 +11,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
-
 #include "nav_interfaces/action/navigate_to_pose.hpp"
+#include "nav_interfaces/msg/nav_diagnostics.hpp"
 
 namespace nav_system
 {
@@ -30,6 +30,7 @@ private:                     // Private variables
   
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;   // Subscriber to the odometry topic 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;   // Publisher to the velocity topic
+  rclcpp::Publisher<nav_interfaces::msg::NavDiagnostics>::SharedPtr diagnostics_pub_;  // Publisher to the diagnostics topic
 
   std::string controller_mode_;  // mode variable to chooose from staged vs simultaneous movement 
 
@@ -58,6 +59,21 @@ private:                     // Private variables
   void get_current_pose(double & x, double & y, double & theta);
   void publish_cmd_vel(double linear_x, double angular_z);    // publish velocity commands to the robot
   void publish_stop();  // publish stop command to the robot
+
+  // publishes the navigation diagnostics to the diagnostics topic
+  void publish_diagnostics(
+  double current_x,
+  double current_y,
+  double current_theta,
+  double target_x,
+  double target_y,
+  double target_theta,
+  double distance_error,
+  double heading_error,
+  double linear_cmd,
+  double angular_cmd,
+  const std::string & phase,
+  bool goal_active);
 };
 
 

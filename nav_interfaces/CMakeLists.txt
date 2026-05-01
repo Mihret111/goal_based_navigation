@@ -14,6 +14,7 @@ find_package(rosidl_default_generators REQUIRED)     # generates USABLE   code f
 
 rosidl_generate_interfaces(${PROJECT_NAME}
    "action/NavigateToPose.action"
+   "msg/NavDiagnostics.msg"
    )
 
 
